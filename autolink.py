@@ -96,6 +96,9 @@ def combine_tags(tags: set[str], file_path) -> set[str]:
     return tags.union(otags)
 
 
+re.match
+
+
 def add_tags(tags, file_path) -> None:
     """
     Adds the given tags to a Markdown file.
@@ -110,15 +113,18 @@ def add_tags(tags, file_path) -> None:
     rt = re.compile(r"(?<!\S| )\[tags\]:# \((.*)\)")
     with open(file_path) as file:
         text = file.read()
-        if m := re.search(rt, text):
+        if m := re.match(rt, text):
             text = re.sub(rt, f"[tags]:# ({tagstring})", text)
+        elif m := re.search(rt, text):
+            text = re.sub(rt, "", text)
+            text = f"[tags]:# ({tagstring})\n" + text
         else:
             text = f"[tags]:# ({tagstring})\n" + text
     with open(file_path, "w") as file:
         file.write(text)
 
 
-def add_links(tags: set[str], file_path):
+def add_links(tags: set[str] | list[str], file_path):
     """
     Goes through the text of a Markdown file and replaces occurrences of tags
     with Markdown reference links in the form [tag][tag].
@@ -128,22 +134,38 @@ def add_links(tags: set[str], file_path):
     appendix = "\n\n"
     with open(file_path) as file:
         text = file.read()
-        for tag in sorted(tags, key=len)[::-1]:
-            tag_origin = get_origin(tag, os.path.dirname(os.path.realpath(file_path)))
-            text = re.sub(
-                rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{tag[:-1]}\B{tag[-1]}(?![a-z,][ \)][\)\n]|\.md)",
-                f"[{tag}][{tag}]",
-                text,
-            )
-            if re.search(rf"(?i)\[{tag}\]\[{tag}\]", text):
-                if (
-                    re.search(
-                        rf"(?i)(?<!\S| )\[{tag}\]: {os.path.relpath(str(tag_origin))}#{tag.replace(" ","-")}",
-                        text,
-                    )
-                    is None
-                ):
-                    appendix += f"[{tag}]: {os.path.relpath(str(tag_origin))}#{tag.replace(" ","-")}\n"
+    m = re.match(r"(?<!\S| )\[tags\]:# \((.*)\)", text)
+    assert m is not None
+    tagstring = m.group(0)
+    print(tagstring)
+    text = re.sub(r"(?<!\S| )\[tags\]:# \((.*)\)", "@@-0-@@", text)
+    tags = sorted(tags, key=len)[::-1]
+    placeholders = {}
+    for i, tag in enumerate(tags):
+        placeholder = rf"@@@{i}@@@"
+        placeholders[placeholder] = f"[{tag}][{tag}]"
+        tag_origin = get_origin(tag, os.path.dirname(os.path.realpath(file_path)))
+        text = re.sub(
+            rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{tag[:-1]}\B{tag[-1]}(?![a-z,][ \)][\)\n]|\.md)",
+            placeholder,
+            text,
+        )
+        text = re.sub(rf"(?i)\[{tag}\]\[{tag}\]", placeholder, text)
+    for placeholder in placeholders.keys():
+        text = re.sub(placeholder, placeholders[placeholder], text)
+
+    for tag in tags:
+        if re.search(rf"(?i)\[{tag}\]\[{tag}\]", text):
+            if (
+                re.search(
+                    rf"(?i)(?<!\S| )\[{tag}\]: {os.path.relpath(str(tag_origin))}#{tag.replace(" ","-")}",
+                    # rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{re.escape(tag)}\b(?!\.md)",
+                    text,
+                )
+                is None
+            ):
+                appendix += f"[{tag}]: {os.path.relpath(str(tag_origin))}#{tag.replace(" ","-")}\n"
+    text = re.sub(r"@@-0-@@", tagstring, text)
     with open(file_path, "w") as file:
         if appendix == "\n\n":
             file.write(text)
