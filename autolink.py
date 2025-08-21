@@ -4,7 +4,7 @@ import re
 from typing import Callable
 
 
-#! DEPRECATED
+#! DEPRECATED, maybe useful... for future functionality
 def get_tags_from_name(path) -> set[str]:
     """
     Reads all Markdown files (.md) in a directory
@@ -84,7 +84,7 @@ def check_tags(tags: set[str], file_path) -> bool:
 def combine_tags(tags: set[str], file_path) -> set[str]:
     """
     Compares the tags stored in the [tags]:# comment
-    with the provided tags.
+    with the provided tags, then combine them.
     """
     otags = set()
     with open(file_path) as file:
@@ -94,9 +94,6 @@ def combine_tags(tags: set[str], file_path) -> set[str]:
             otags.discard("")
 
     return tags.union(otags)
-
-
-re.match
 
 
 def add_tags(tags, file_path) -> None:
@@ -142,23 +139,26 @@ def add_links(tags: set[str] | list[str], file_path):
     tags = sorted(tags, key=len)[::-1]
     placeholders = {}
     for i, tag in enumerate(tags):
+        etag = re.escape(tag)
         placeholder = rf"@@@{i}@@@"
         placeholders[placeholder] = f"[{tag}][{tag}]"
         tag_origin = get_origin(tag, os.path.dirname(os.path.realpath(file_path)))
         text = re.sub(
-            rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{tag[:-1]}\B{tag[-1]}(?![a-z,][ \)][\)\n]|\.md)",
+            # rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{tag[:-1]}\B{tag[-1]}(?![a-z,][ \)][\)\n]|\.md)",
+            rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{etag}(?![a-z,][ \)][\)\n]|\.md)",
             placeholder,
             text,
         )
-        text = re.sub(rf"(?i)\[{tag}\]\[{tag}\]", placeholder, text)
+        text = re.sub(rf"(?i)\[{etag}\]\[{etag}\]", placeholder, text)
     for placeholder in placeholders.keys():
         text = re.sub(placeholder, placeholders[placeholder], text)
 
     for tag in tags:
-        if re.search(rf"(?i)\[{tag}\]\[{tag}\]", text):
+        etag = re.escape(tag)
+        if re.search(rf"(?i)\[{etag}\]\[{etag}\]", text):
             if (
                 re.search(
-                    rf"(?i)(?<!\S| )\[{tag}\]: {os.path.relpath(str(tag_origin))}#{tag.replace(" ","-")}",
+                    rf"(?i)(?<!\S| )\[{etag}\]: {re.escape(os.path.relpath(str(tag_origin)))}#{re.escape(tag.replace(" ","-"))}",
                     # rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{re.escape(tag)}\b(?!\.md)",
                     text,
                 )
@@ -190,6 +190,8 @@ def get_origin(tag, path):
                 tagstring = re.search(rt, file.read()).group(1)
                 if tag in tagstring.lower().split(", "):
                     return file_path
+    else:
+        raise ValueError(f"no tag: {tag} was found in {path}")
 
 
 def initialize_tagging(path):
@@ -209,6 +211,7 @@ def initialize_tagging(path):
             and os.path.splitext(file_path)[1].lower() == ".md"
         ):
             tags = get_tags_from_headers(file_path)
+            tags.update(get_tags_from_comment(file_path))
             # td = {tag: file_path for tag in tags}
             # tag_dict += td
             add_tags(tags, file_path)
@@ -220,41 +223,6 @@ def initialize_tagging(path):
             and os.path.splitext(file_path)[1].lower() == ".md"
         ):
             add_links(atags, file_path)
-
-
-# ? WIP
-def update_all_tags(path):
-    atags = set()
-    for name in os.listdir(path):
-        file_path = os.path.join(path, name)
-        if (
-            os.path.isfile(file_path)
-            and os.path.splitext(file_path)[1].lower() == ".md"
-        ):
-            tags = set()
-            tags.update(get_tags_from_headers(file_path))
-            tags.update(get_tags_from_comment(file_path))
-            add_tags(file_path)
-            atags.update(tags)
-    for name in os.listdir(path):
-        file_path = os.path.join(path, name)
-        if (
-            os.path.isfile(file_path)
-            and os.path.splitext(file_path)[1].lower() == ".md"
-        ):
-            add_links(atags, file_path)
-
-
-def find_tag_hirarchy(hierarchy: list) -> list[set[str]]:
-    """
-    Incomplete function:
-    Intended to build a tag hierarchy (e.g. parent/child relationships).
-    Currently just a placeholder without functionality.
-    """
-    for tag in tags:
-        for match in tags.copy().discard(tag):
-            if tag in match:
-                pass
 
 
 if __name__ == "__main__":
