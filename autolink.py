@@ -1,11 +1,13 @@
 import os
 import re
 
-from typing import Callable
+from datetime import datetime
+
+from typing import Callable, Iterable
 
 
 #! DEPRECATED, maybe useful... for future functionality
-def get_tags_from_name(path) -> set[str]:
+def get_tags_from_name(path: str) -> set[str]:
     """
     Reads all Markdown files (.md) in a directory
     and extracts tags from the filenames.
@@ -25,7 +27,7 @@ def get_tags_from_name(path) -> set[str]:
     return tags
 
 
-def get_tags_from_headers(file_path) -> set[str]:
+def get_tags_from_headers(file_path: str) -> set[str]:
     """
     Reads a Markdown file and extracts tags from headers (#, ##, ###, …).
     The header text is converted to lowercase and returned as a set.
@@ -38,7 +40,7 @@ def get_tags_from_headers(file_path) -> set[str]:
     return tags
 
 
-def get_tags_from_comment(file_path):
+def get_tags_from_comment(file_path: str) -> set[str]:
     """
     Reads a Markdown file and looks for a special comment:
     [tags]:# (tag1,tag2,...)
@@ -57,7 +59,7 @@ def get_tags_from_comment(file_path):
 
 
 #! DEPRECATED or maybe later feature...
-def check_direct_links(tags, file_path):
+def check_direct_links(tags: set[str], file_path: str) -> bool:
     """
     Checks if all tags either appear in the filename or in the file content,
     and whether they already exist as Markdown links to other files.
@@ -96,7 +98,7 @@ def combine_tags(tags: set[str], file_path) -> set[str]:
     return tags.union(otags)
 
 
-def add_tags(tags, file_path) -> None:
+def add_tags(tags: set[str], file_path: str) -> None:
     """
     Adds the given tags to a Markdown file.
     If a [tags]:# entry already exists, it is updated.
@@ -121,7 +123,7 @@ def add_tags(tags, file_path) -> None:
         file.write(text)
 
 
-def add_links(tags: set[str] | list[str], file_path):
+def add_links(tags: set[str] | list[str], file_path) -> None:
     """
     Goes through the text of a Markdown file and replaces occurrences of tags
     with Markdown reference links in the form [tag][tag].
@@ -134,7 +136,6 @@ def add_links(tags: set[str] | list[str], file_path):
     m = re.match(r"(?<!\S| )\[tags\]:# \((.*)\)", text)
     assert m is not None
     tagstring = m.group(0)
-    print(tagstring)
     text = re.sub(r"(?<!\S| )\[tags\]:# \((.*)\)", "@@-0-@@", text)
     tags = sorted(tags, key=len)[::-1]
     placeholders = {}
@@ -144,7 +145,6 @@ def add_links(tags: set[str] | list[str], file_path):
         placeholders[placeholder] = f"[{tag}][{tag}]"
         tag_origin = get_origin(tag, os.path.dirname(os.path.realpath(file_path)))
         text = re.sub(
-            # rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{tag[:-1]}\B{tag[-1]}(?![a-z,][ \)][\)\n]|\.md)",
             rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{etag}(?![a-z,][ \)][\)\n]|\.md)",
             placeholder,
             text,
@@ -159,7 +159,6 @@ def add_links(tags: set[str] | list[str], file_path):
             if (
                 re.search(
                     rf"(?i)(?<!\S| )\[{etag}\]: {re.escape(os.path.relpath(str(tag_origin)))}#{re.escape(tag.replace(" ","-"))}",
-                    # rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{re.escape(tag)}\b(?!\.md)",
                     text,
                 )
                 is None
@@ -173,7 +172,7 @@ def add_links(tags: set[str] | list[str], file_path):
             file.write(text + appendix)
 
 
-def get_origin(tag, path):
+def get_origin(tag: str, path: str) -> str:
     """
     Searches for a Markdown file in the directory that contains the tag
     inside its [tags]:# entry.
@@ -186,15 +185,17 @@ def get_origin(tag, path):
             os.path.isfile(file_path)
             and os.path.splitext(file_path)[1].lower() == ".md"
         ):
-            with open(file_path) as file:
-                tagstring = re.search(rt, file.read()).group(1)
+            with open(os.path.realpath(file_path)) as f:
+                m = re.search(rt, f.read())
+                assert m is not None
+                tagstring = m.group(1)
                 if tag in tagstring.lower().split(", "):
                     return file_path
     else:
         raise ValueError(f"no tag: {tag} was found in {path}")
 
 
-def initialize_tagging(path):
+def initialize_tagging(path: str) -> None:
     """
     Initializes tagging:
     - goes through all Markdown files in the directory
@@ -203,12 +204,12 @@ def initialize_tagging(path):
     - then creates cross-links between all files based on tags
     """
     atags = set()
-    tag_dict = {}
     for name in os.listdir(path):
         file_path = os.path.join(path, name)
         if (
             os.path.isfile(file_path)
             and os.path.splitext(file_path)[1].lower() == ".md"
+            and not file_path.endswith("linklist.md")
         ):
             tags = get_tags_from_headers(file_path)
             tags.update(get_tags_from_comment(file_path))
@@ -225,5 +226,75 @@ def initialize_tagging(path):
             add_links(atags, file_path)
 
 
+def create_linklist(path: str) -> str:
+    """
+    Creates a list of generated tags, and their links.
+    Returns the path to the list.
+    """
+    tags: set = set()
+    list_path = os.path.join(path, "linklist.md")
+    try:
+        with open(list_path, "x") as f:
+            pass
+        text = ""
+    except FileExistsError as e:
+        with open(list_path) as f:
+            text = f.read()
+        # TODO tags.update(get_tags_from_list(list_path))
+    for name in os.listdir(path):
+        file_path = os.path.join(path, name)
+        if (
+            os.path.isfile(file_path)
+            and os.path.splitext(file_path)[1].lower() == ".md"
+            and not file_path.endswith("linklist.md")
+        ):
+            tags.update(get_tags_from_comment(file_path))
+            tags.update(get_tags_from_headers(file_path))
+    for tag in tags:
+        tag_path = get_origin(tag, path)
+        text += f"[{tag}]({tag_path});"
+        now = datetime.now()
+        for link in find_links_to_tag(tag, path):
+            text += f"[{now.strftime('%d/%m/%Y, %H:%M:%S')}]({link});"
+        text += "\n"
+
+    with open(list_path, "w") as f:
+        f.write(text)
+
+    return list_path
+
+
+def check_list_for_tags(tags: Iterable, path: str) -> set:
+    """
+    Checks if the linklist of a directory has the provided tags,
+    if no list exists it returns an empty set.
+    """
+    found_tags: set = set()
+    try:
+        with open(os.path.join(path, "linklist.md"), "r") as f:
+            text = f.read()
+    except FileNotFoundError as e:
+        return found_tags
+    for tag in tags:
+        if f"[{tag.lower()}]" in text:
+            found_tags.add(tag)
+    return found_tags
+
+
+# TODO FINISH THIS! NO FUNCTIONALITY HERE!!!
+def find_links_to_tag(tag: str, path: str) -> list[str | None]:
+    links: list[str | None] = []
+
+    for name in os.listdir(path):
+        file_path = os.path.join(path, name)
+        if (
+            os.path.isfile(file_path)
+            and os.path.splitext(file_path)[1].lower() == ".md"
+            and not os.path.splitext(file_path)[0].endswith("linklist")
+        ):
+            pass
+    return sorted(links)
+
+
 if __name__ == "__main__":
-    tags = initialize_tagging(os.path.realpath("./"))
+    initialize_tagging(os.path.realpath("./"))

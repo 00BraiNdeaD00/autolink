@@ -265,3 +265,21 @@ def test_initialize_tagging(tmp_path):
     # ensure escaped properly and replaced with links
     assert "[c++]" in text2
     assert any(line.startswith("[c++]") for line in text2.splitlines())
+
+
+def test_create_linklist(tmp_path):
+    f1 = tmp_path / "a.md"
+    f1.write_text("# Alpha\nbody, gamma is alpha. Beta!")
+    f2 = tmp_path / "b.md"
+    f2.write_text("body\n## Beta\ntext is here and custom, \n### Gamma\n alpha rules!")
+    f3 = tmp_path / "c.md"
+    f3.write_text("[tags]:# (custom, )\nnew lines here\n# Delta\n body")
+    autolink.initialize_tagging(tmp_path)
+    ll_path = autolink.create_linklist(tmp_path)
+    with open(ll_path) as ll:
+        text = ll.read()
+    assert f"[alpha]({f1})" in text
+    assert f"[beta]({f2})" in text
+    assert f"[gamma]({f2})" in text
+    assert f"[custom]({f3})" in text
+    assert f"[delta]({f3})" in text
