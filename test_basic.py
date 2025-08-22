@@ -18,144 +18,60 @@ def test_get_tags_from_name(tmp_path):
 def test_get_tags_from_headers(tmp_path):
     tempdir = tmp_path / "my_files"
     tempdir.mkdir()
-    t1 = tempdir / "Hello.md"
+    t1 = tempdir / "a.md"
     t1.write_text("# Hello\nText\n# World")
-    t2 = tempdir / "Test_World.md"
+    t2 = tempdir / "b.md"
     t2.write_text("Hello World\n## Test")
-    tags = autolink.get_tags_from_name(tempdir)
-    assert tags == {"hello", "world", "test"}
+    tags = autolink.get_tags_from_headers(t1.read_text())
+    tags.update(autolink.get_tags_from_headers(t2.read_text()))
+    assert tags == {"Hello", "World", "Test"}
 
 
-def test_check_direct_links(tmp_path):
-    tempdir = tmp_path / "my_files"
-    tempdir.mkdir()
-    t1 = tempdir / "hello.md"
-    t1.write_text("Hello World, world")
-    t2 = tempdir / "Test_World.md"
-    t2.write_text(f"[Hello](./myfiles/Hello.md) World")
-    with open(t1) as f:
-        print(f.read())
-    tags = {"hello", "world", "test"}
-    assert autolink.check_direct_links(tags, t1) == False
-    assert autolink.check_direct_links(tags, t2) == True
-    # assert False
-
-
-def test_combine_tags(tmp_path):
-    f = tmp_path / "tags.md"
-
+def test_add_tags():
     # basic
-    f.write_text("body\n[tags]:# (alpha)")
-    new_tags = {"beta", "gamma"}
-    combined = autolink.combine_tags(new_tags, f)
-    assert combined == {"alpha", "beta", "gamma"}
-
-    # doubled tags
-    f.write_text("body\n[tags]:# (alpha)")
-    new_tags = {"beta", "alpha"}
-    combined = autolink.combine_tags(new_tags, f)
-    assert combined == {"alpha", "beta"}
-
-    # long and small tags
-    f.write_text("body\n[tags]:# (alpha)")
-    new_tags = {"beta", "alpha 2"}
-    combined = autolink.combine_tags(new_tags, f)
-    assert combined == {"alpha", "beta", "alpha 2"}
-    f.write_text("body\n[tags]:# (alpha 2)")
-    new_tags = {"beta", "alpha"}
-    combined = autolink.combine_tags(new_tags, f)
-    assert combined == {"alpha", "beta", "alpha 2"}
-
-    # tempdir = tmp_path / "my_files"
-    # tempdir.mkdir()
-    # t1 = tempdir / "Hello.md"
-    # t1.write_text("Hello World\nabcd\n[tags]:# (test, butter)")
-    # t2 = tempdir / "Test_World.md"
-    # t2.write_text(f"abc\n def\ntest\nwhy")
-    # t3 = tempdir / "abc.md"
-    # t3.write_text(f"abc\n def\ntest\nwhy\n[tags]:# ()")
-    # t4 = tempdir / "defer.md"
-    # t4.write_text(f"abc\n def\ntest\nwhy\n[tags]:# (hello, world,test)")
-    # t5 = tempdir / "bernd.md"
-    # t5.write_text(f"abc\n def\ntest\nwhy\n[tags]:# (car, ship wreck, )")
-    # tags = {"hello", "world", "test"}
-    # assert autolink.combine_tags(tags, t1) == {"hello", "world", "test", "butter"}
-    # assert autolink.combine_tags(tags, t2) == {"hello", "world", "test"}
-    # assert autolink.combine_tags(tags, t3) == {"hello", "world", "test"}
-    # assert autolink.combine_tags(tags, t4) == {"hello", "world", "test"}
-    # assert autolink.combine_tags(tags, t5) == {
-    #     "hello",
-    #     "world",
-    #     "test",
-    #     "ship wreck",
-    #     "car",
-    # }
-
-
-def test_add_tags(tmp_path):
-
-    # basic
-    f = tmp_path / "tags.md"
-    f.write_text("body\n")
-    autolink.add_tags({"alpha", "beta"}, f)
-    assert "alpha" in f.read_text()
+    s = "body\n"
+    s = autolink.add_tags({"alpha", "beta"}, s)
+    assert "alpha" in s
 
     # Update with new tags
-    autolink.add_tags({"alpha", "gamma"}, f)
-    text = f.read_text()
-    assert "gamma" in text
-    assert "beta" in text  # existing tags are preserved
+    s = autolink.add_tags({"alpha", "gamma"}, s)
+    assert "gamma" in s
+    assert "beta" in s  # existing tags are preserved
 
     # check for doubled tag-comment
-    f.write_text(
-        "Hello World\nabcd\n[tags]:# (bernd,brot,)\n[tags]:# (hello, world, test, )"
-    )
+    s = "Hello World\nabcd\n[tags]:# (bernd,brot,)\n[tags]:# (hello, world, test, )"
     tags = {"butter"}
-    autolink.add_tags(tags, f)
-    assert autolink.check_tags({"bernd", "brot", "butter"}, f)
+    s = autolink.add_tags(tags, s)
+    assert autolink.get_tags_from_comment(s) == {"bernd", "brot", "butter"}
 
 
-def test_add_links(tmp_path):
-    f1 = tmp_path / "defs.md"
-    f1.write_text("[tags]:# (hello world, world)\n# hello world\n## world")
-
-    f2 = tmp_path / "doc.md"
-    f2.write_text("[tags]:# (doc, )\nhello world is not just world")
-
-    autolink.add_links({"hello world", "world"}, f2, tmp_path)
-    text = f2.read_text()
+def test_add_links():
+    ls = "[tags]:# (doc, hello world, world, )\n\n[doc](a.md#doc);\n\n[world](b.md#magic)\n\n[hello world](c.md#bernd)"
+    s2 = "[tags]:# (doc, )\nhello world is not just world"
+    s2 = autolink.add_links_from_list(s2, ls)
 
     # Both should be linked, but not nested
-    assert "[hello world][hello world]" in text
-    assert "[world][world]" in text
+    assert "[hello world][hello world]" in s2
+    assert "[world][world]" in s2
     # Ensure definitions are appended
-    assert "[hello world]:" in text
-    assert "[world]:" in text
+    assert "[hello world]:" in s2
+    assert "[world]:" in s2
 
 
 def test_get_tags_from_comment(tmp_path):
-    f = tmp_path / "tags.md"
-    f.write_text("body\n[tags]:# (alpha, beta, gamma)")
-    tags = autolink.get_tags_from_comment(f)
+    s = "body\n[tags]:# (alpha, beta, gamma)"
+    tags = autolink.get_tags_from_comment(s)
     assert tags == {"alpha", "beta", "gamma"}
 
     # Empty tag list
-    f.write_text("body\n[tags]:# ()")
-    tags = autolink.get_tags_from_comment(f)
+    s = "body\n[tags]:# ()"
+    tags = autolink.get_tags_from_comment(s)
     assert tags == set()
 
     # Bad formating:
-    f.write_text("body\n[tags]:# (alpha,beta,gamma)")
-    tags = autolink.get_tags_from_comment(f)
+    s = "body\n[tags]:# (alpha,beta,gamma)"
+    tags = autolink.get_tags_from_comment(s)
     assert tags == {"alpha", "beta", "gamma"}
-
-
-def test_check_tags(tmp_path):
-    f = tmp_path / "tags.md"
-    f.write_text("body\n[tags]:# (alpha, beta)")
-    assert autolink.check_tags({"alpha", "beta"}, f)
-    assert not autolink.check_tags({"alpha"}, f)
-    assert not autolink.check_tags({"gamma"}, f)
 
 
 def test_get_origin(tmp_path):
@@ -265,21 +181,3 @@ def test_initialize_tagging(tmp_path):
     # ensure escaped properly and replaced with links
     assert "[c++]" in text2
     assert any(line.startswith("[c++]") for line in text2.splitlines())
-
-
-def test_create_linklist(tmp_path):
-    f1 = tmp_path / "a.md"
-    f1.write_text("# Alpha\nbody, gamma is alpha. Beta!")
-    f2 = tmp_path / "b.md"
-    f2.write_text("body\n## Beta\ntext is here and custom, \n### Gamma\n alpha rules!")
-    f3 = tmp_path / "c.md"
-    f3.write_text("[tags]:# (custom, )\nnew lines here\n# Delta\n body")
-    autolink.initialize_tagging(tmp_path)
-    ll_path = autolink.create_linklist(tmp_path)
-    with open(ll_path) as ll:
-        text = ll.read()
-    assert f"[alpha]({os.path.relpath(f1,tmp_path)}#alpha)" in text
-    assert f"[beta]({os.path.relpath(f2,tmp_path)}#beta)" in text
-    assert f"[gamma]({os.path.relpath(f2,tmp_path)}#gamma)" in text
-    assert f"[custom]({os.path.relpath(f3,tmp_path)}#custom)" in text
-    assert f"[delta]({os.path.relpath(f3,tmp_path)}#delta)" in text

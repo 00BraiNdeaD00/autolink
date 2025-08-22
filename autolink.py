@@ -20,6 +20,7 @@ def get_tags_from_name(path: str) -> set[str]:
         if (
             os.path.isfile(item_path)
             and os.path.splitext(item_path)[1].lower() == ".md"
+            and not item_path.endswith("linklist.md")
         ):
             text = os.path.splitext(name)[0].lower()
             words = text.split("_")
@@ -28,143 +29,91 @@ def get_tags_from_name(path: str) -> set[str]:
     return tags
 
 
-def get_tags_from_headers(file_path: str) -> set[str]:
+def get_tags_from_headers(text: str) -> set[str]:
     """
-    Reads a Markdown file and extracts tags from headers (#, ##, ###, …).
+    reads markdown formatted string and extracts tags from headers (#, ##, ###, …).
     The header text is converted to lowercase and returned as a set.
     """
-    with open(file_path, encoding="utf-8") as file:
-        tags = {
-            "".join(tag.split("# ")[1:]).lower()
-            for tag in re.findall(r"(?<!\S| )#{1,6} .+", file.read())
-        }
-    return tags
+    return {
+        "".join(tag.split("# ")[1:]) for tag in re.findall(r"(?<!\S| )#{1,6} .+", text)
+    }
 
 
 # ! not quite the intended Behavior, unused for now
-def get_tags_from_bold(file_path: str) -> set[str]:
+def get_tags_from_bold(text: str) -> set[str]:
     """
-    Reads a Markdown file and extracts tags from headers (#, ##, ###, …).
+    reads markdown formatted string and extracts tags from bold expressions (**expression**).
+    The text is converted to lowercase and returned as a set.
+    """
+    return {tag for tag in re.findall(r"(?<=\*\*)[^\*\[\]]*(?=\*\*)", text)}
+
+
+def get_tags_from_wikiquote(text: str) -> set[str]:
+    """
+    reads markdown formatted string and extracts tags from headers (#, ##, ###, …).
     The header text is converted to lowercase and returned as a set.
     """
-    with open(file_path, encoding="utf-8") as file:
-        tags = {
-            tag.lower()
-            for tag in re.findall(r"(?<=\*\*)[^\*\[\]]*(?=\*\*)", file.read())
-        }
-    return tags
+    return {tag for tag in re.findall(r"(?<=\[\[)[^\[\]]*(?=\]\])", text)}
 
 
-def get_tags_from_wikiquote(file_path: str) -> set[str]:
+def get_tags_from_comment(text: str) -> set[str]:
     """
-    Reads a Markdown file and extracts tags from headers (#, ##, ###, …).
-    The header text is converted to lowercase and returned as a set.
-    """
-    with open(file_path, encoding="utf-8") as file:
-        tags = {
-            tag.lower() for tag in re.findall(r"(?<=\[\[)[^\[\]]*(?=\]\])", file.read())
-        }
-    return tags
-
-
-def get_tags_from_comment(file_path: str) -> set[str]:
-    """
-    Reads a Markdown file and looks for a special comment:
+    Reads a Markdown formated Text and looks for a special comment:
     [tags]:# (tag1,tag2,...)
     Extracts the tags, removes extra spaces, and returns them as a set.
     """
-    with open(file_path, encoding="utf-8") as file:
-        tags = set()
-        try:
-            m = re.search(r"(?<!\S| )\[tags\]:# \((.*)\)", file.read())
-            assert m is not None
-            string = m.group(1).replace(", ", ",")
-            tags = set(string.split(","))
-            tags.discard("")
-        finally:
-            return tags
+    tags = set()
+    try:
+        m = re.search(r"(?<!\S| )\[tags\]:# \((.*)\)", text)
+        assert m is not None
+        string = m.group(1).replace(", ", ",")
+        tags = set(string.split(","))
+        tags.discard("")
+    finally:
+        return tags
 
 
-#! DEPRECATED or maybe later feature...
-def check_direct_links(tags: set[str], file_path: str) -> bool:
+def add_tags(tags: set[str], text: str) -> str:
     """
-    Checks if all tags either appear in the filename or in the file content,
-    and whether they already exist as Markdown links to other files.
-    Returns True if links already exist, otherwise False.
-    """
-    with open(file_path, encoding="utf-8") as file:
-        text = file.read()
-        for tag in tags:
-            if a := re.search(rf"(?i){tag}", os.path.basename(file_path)):
-                continue
-            if ist := re.search(rf"(?i){tag}", text):
-                if b := re.search(rf"(?i)\[{tag}\]\(.*\.md\)", text):
-                    continue
-                else:
-                    return False
-        return True
-
-
-def check_tags(tags: set[str], file_path) -> bool:
-    otags = get_tags_from_comment(file_path)
-    return otags == tags
-
-
-def combine_tags(tags: set[str], file_path) -> set[str]:
-    """
-    Compares the tags stored in the [tags]:# comment
-    with the provided tags, then combine them.
-    """
-    otags = set()
-    with open(file_path, encoding="utf-8") as file:
-        if m := re.search(r"(?<!\S| )\[tags\]:# \((.*)\)", file.read()):
-            string = m.group(1).replace(", ", ",")
-            otags = set(string.split(","))
-            otags.discard("")
-
-    return tags.union(otags)
-
-
-def add_tags(tags: set[str], file_path: str) -> None:
-    """
-    Adds the given tags to a Markdown file.
+    Adds the given tags to a Markdown formated text.
     If a [tags]:# entry already exists, it is updated.
     Otherwise, a new one is inserted at the top.
     """
-    tags = combine_tags(tags, file_path)
-    taglist = list(tags)
+    tags = tags.union(get_tags_from_comment(text))
+    taglist = sorted(tags)
     tagstring = ""
     for tag in taglist:
         tagstring += f"{tag}, "
-    rt = re.compile(r"(?<!\S| )\[tags\]:# \((.*)\)")
-    with open(file_path, encoding="utf-8") as file:
-        text = file.read()
-        if m := re.match(rt, text):
-            text = re.sub(rt, f"[tags]:# ({tagstring})", text)
-        elif m := re.search(rt, text):
-            text = re.sub(rt, "", text)
-            text = f"[tags]:# ({tagstring})\n" + text
-        else:
-            text = f"[tags]:# ({tagstring})\n" + text
-    with open(file_path, "w", encoding="utf-8") as file:
-        file.write(text)
+    rt = re.compile(r"(?<!\S| )\[tags\]:# \((.*)\)")  # match [tags]:# (...)
+    if re.match(r"(?<!\S| )\[tags\]:# \((.*)\)\n\n", text):
+        text = re.sub(rt, f"[tags]:# ({tagstring})", text)
+    elif re.search(r"(?<!\S| )\[tags\]:# \((.*)\)", text):
+        text = re.sub(rt, "", text)
+        text = text.lstrip()
+        text = f"[tags]:# ({tagstring})\n\n" + text
+    else:
+        text = f"[tags]:# ({tagstring})\n\n" + text
+    return text
 
 
-def add_links(tags: set[str] | list[str], file_path: str, path: str) -> None:
+def add_links_from_list(text: str, linklist: str) -> str:
     """
-    Goes through the text of a Markdown file and replaces occurrences of tags
+    Goes through the text of a Markdown formated text and replaces occurrences of tags
     with Markdown reference links in the form [tag][tag].
     Then appends link definitions at the end of the file in this format:
     [tag]: relative/path/file.md#tag
     """
+    tre = re.compile(r"\[(.*)\]\((.*)\)")
+    ld = {
+        re.match(tre, strg).group(1): re.match(tre, strg).group(2)
+        for strg in linklist.rstrip().split("\n\n")[1:]
+    }
     appendix = "\n\n"
-    with open(file_path, encoding="utf-8") as file:
-        text = file.read()
     m = re.match(r"(?<!\S| )\[tags\]:# \((.*)\)", text)
     assert m is not None
     tagstring = m.group(0)
     text = re.sub(r"(?<!\S| )\[tags\]:# \((.*)\)", "@@-0-@@", text)
-    tags = sorted(tags, key=len)[::-1]
+    tags = sorted(get_tags_from_comment(linklist), key=len)[::-1]
     placeholders = {}
     for i, tag in enumerate(tags):
         etag = re.escape(tag)
@@ -173,35 +122,35 @@ def add_links(tags: set[str] | list[str], file_path: str, path: str) -> None:
         text = re.sub(re.escape(placeholders[placeholder]), placeholder, text)
         text = re.sub(rf"(?i)\[{etag}\]: .*#.*\.md\n", "", text)
         text = re.sub(
-            rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{etag}(?![a-z,][ \)][\)\n]|\.md)",
+            rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{etag}(?![a-z,][ \)][\)\n]|\.md)|(?<=\[\[){etag}(?=\]\])",
             placeholder,
             text,
         )
         text.rstrip()
         text = re.sub(rf"(?i)\[{etag}\]\[{etag}\]", placeholder, text)
     for placeholder in placeholders.keys():
+        text = re.sub(rf"\[\[{placeholder}\]\]", placeholder, text)
         text = re.sub(placeholder, placeholders[placeholder], text)
 
     for tag in tags:
-        tag_origin = get_origin(tag, path)
         etag = re.escape(tag)
         if re.search(rf"(?i)\[{etag}\]\[{etag}\]", text):
             if (
                 re.search(
-                    rf"(?i)(?<!\S| )\[{etag}\]: {re.escape(os.path.relpath(str(tag_origin), path))}#{re.escape(tag.replace(" ","-"))}",
+                    rf"(?i)(?<!\S| )\[{etag}\]: {re.escape(ld[tag])}",
                     text,
                 )
                 is None
             ):
-                appendix += f"[{tag}]: {os.path.relpath(str(tag_origin), path)}#{tag.replace(" ","-")}\n"
+                appendix += f"[{tag}]: {ld[tag]}\n"
     text = re.sub(r"@@-0-@@", tagstring, text)
-    with open(file_path, "w", encoding="utf-8") as file:
-        if appendix == "\n\n":
-            file.write(text)
-        else:
-            file.write(text + appendix)
+    if appendix == "\n\n":
+        return text
+    else:
+        return text + appendix
 
 
+# TODO reduce use of expensive operation
 def get_origin(tag: str, path: str) -> str:
     """
     Searches for a Markdown file in the directory that contains the tag
@@ -234,69 +183,84 @@ def initialize_tagging(path: str) -> None:
     - inserts them into [tags]:# comments
     - then creates cross-links between all files based on tags
     """
+    drc = os.listdir(path)
+    if len(drc) == 0:
+        return
     atags = set()
-    for name in os.listdir(path):
+    atag_paths: dict = {}
+    linklist = ""
+    for name in drc:
         file_path = os.path.join(path, name)
         if (
             os.path.isfile(file_path)
             and os.path.splitext(file_path)[1].lower() == ".md"
             and not file_path.endswith("linklist.md")
         ):
-            tags = get_tags_from_headers(file_path)
-            tags.update(get_tags_from_bold(file_path))
-            tags.update(get_tags_from_comment(file_path))
-            # td = {tag: file_path for tag in tags}
-            # tag_dict += td
-            add_tags(tags, file_path)
+            with open(file_path, encoding="utf-8") as f:
+                text = f.read()
+            tags = get_tags_from_headers(text)
+            tags.update(get_tags_from_comment(text))
+            tags.update(get_tags_from_wikiquote(text))
+            text = add_tags(tags, text)
+            tag_paths = get_tag_headers(tags, text, os.path.relpath(file_path, path))
             atags.update(tags)
-    for name in os.listdir(path):
+            atag_paths |= tag_paths
+            with open(file_path, mode="w", encoding="utf-8") as f:
+                f.write(text)
+    linklist = add_tags(atags, linklist)
+    linklist = add_taglinks_to_linklist(atags, atag_paths, linklist)
+    for name in drc:
         file_path = os.path.join(path, name)
         if (
             os.path.isfile(file_path)
             and os.path.splitext(file_path)[1].lower() == ".md"
             and not file_path.endswith("linklist.md")
         ):
-            add_links(atags, file_path, path)
+            with open(file_path, "r", encoding="utf-8") as f:
+                text = f.read()
+            out = add_links_from_list(text, linklist)
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(out)
+    with open(os.path.join(path, "linklist.md"), "w", encoding="utf-8") as fl:
+        fl.write(linklist)
 
 
-def create_linklist(path: str) -> str:
-    """
-    Creates a list of generated tags, and their links.
-    Returns the path to the list.
-    """
-    tags: set = set()
-    list_path = os.path.join(path, "linklist.md")
-    try:
-        with open(list_path, "x", encoding="utf-8") as f:
-            pass
-        text = ""
-    except FileExistsError as e:
-        with open(list_path) as f:
-            text = ""
-        # TODO tags.update(get_tags_from_list(list_path))
-    for name in os.listdir(path):
-        file_path = os.path.join(path, name)
-        if (
-            os.path.isfile(file_path)
-            and os.path.splitext(file_path)[1].lower() == ".md"
-            and not file_path.endswith("linklist.md")
-        ):
-            tags.update(get_tags_from_comment(file_path))
-            tags.update(get_tags_from_bold(file_path))
-            tags.update(get_tags_from_headers(file_path))
+def add_taglinks_to_linklist(tags: set[str], tag_paths: dict, text: str) -> str:
     for tag in sorted(tags):
-        tag_path = get_origin(tag, path)
-        text += f"[{tag}]({os.path.relpath(tag_path, path)}#{tag.replace(" ", "-")}); "
-        now = datetime.now()
-        for link in find_links_to_tag(tag, path):
-            text += f"[{link}: {now.strftime('%d/%m/%Y, %H:%M:%S')}]({link}); "
-        text += "\n\n"
+        if not re.search(rf"\[{tag}\]", text):
+            text += f"[{tag}]({tag_paths[tag]}); \n\n"
+    return text
 
-    with open(list_path, "w", encoding="utf-8") as f:
-        f.write(text)
-    add_tags(tags, list_path)
 
-    return list_path
+def get_tag_headers(tags: set, text, rel_path):
+    tags = tags.copy()
+    hre = re.compile(r"^#{1,6} .*(?=\n)|(?<=\n)#{1,6} .*(?=\n|$)")
+    headers = re.findall(hre, text)
+    if (m := re.match(r"^\[tags\]:# .*\n\n", text)) is not None:
+        assert m is not None
+        text = text[len(m.group(0)) :]
+    tag_paths = {
+        header.split("# ")[1]: rel_path + "#" + header.split("# ")[1].replace(" ", "-")
+        for header in headers
+    }
+    headers = [""] + headers
+    splt = re.split(hre, text)
+    tags.difference_update(tag_paths.keys())
+    for tag in tags:
+        for i, strng in enumerate(splt):
+            if tag in tag_paths.keys():
+                continue
+            if tag in strng:
+                if headers[i] == "":
+                    tag_paths[tag] = rel_path
+                else:
+                    tag_paths[tag] = (
+                        rel_path + "#" + headers[i].split("# ")[1].replace(" ", "-")
+                    )
+    for tag in tags:
+        if tag not in tag_paths.keys():
+            tag_paths[tag] = rel_path
+    return tag_paths
 
 
 def check_list_for_tags(tags: Iterable, path: str) -> set:
@@ -349,11 +313,8 @@ def find_links_to_tag(tag: str, path: str) -> list[str | None]:
     return links
 
 
+# TODO
 def update_tags_on_file(file_path: str) -> None:
-    pass
-
-
-def clean_wikilinks(file_path):
     pass
 
 
@@ -379,9 +340,7 @@ def terminal_operation() -> None:
     args = parser.parse_args()
     if args.new:
         initialize_tagging(os.path.realpath(args.path))
-        create_linklist(os.path.realpath(args.path))
 
 
 if __name__ == "__main__":
     terminal_operation()
-    # print(get_tags_from_bold(os.path.realpath("./README.md")))
