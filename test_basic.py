@@ -122,7 +122,7 @@ def test_add_links(tmp_path):
     f2 = tmp_path / "doc.md"
     f2.write_text("[tags]:# (doc, )\nhello world is not just world")
 
-    autolink.add_links({"hello world", "world"}, f2)
+    autolink.add_links({"hello world", "world"}, f2, tmp_path)
     text = f2.read_text()
 
     # Both should be linked, but not nested
@@ -278,8 +278,8 @@ def test_create_linklist(tmp_path):
     ll_path = autolink.create_linklist(tmp_path)
     with open(ll_path) as ll:
         text = ll.read()
-    assert f"[alpha]({f1})" in text
-    assert f"[beta]({f2})" in text
-    assert f"[gamma]({f2})" in text
-    assert f"[custom]({f3})" in text
-    assert f"[delta]({f3})" in text
+    assert f"[alpha]({os.path.relpath(f1,tmp_path)}#alpha)" in text
+    assert f"[beta]({os.path.relpath(f2,tmp_path)}#beta)" in text
+    assert f"[gamma]({os.path.relpath(f2,tmp_path)}#gamma)" in text
+    assert f"[custom]({os.path.relpath(f3,tmp_path)}#custom)" in text
+    assert f"[delta]({os.path.relpath(f3,tmp_path)}#delta)" in text
