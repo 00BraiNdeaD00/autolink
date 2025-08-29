@@ -1,3 +1,3 @@
-import src.autolink
+import autolink
 
-src.autolink.terminal_operation()
+autolink.terminal_operation()

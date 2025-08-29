@@ -84,15 +84,21 @@ def add_tags(tags: set[str], text: str) -> str:
     tagstring = ""
     for tag in taglist:
         tagstring += f"{tag}, "
-    rt = re.compile(r"(?<!\S| )\[tags\]:# \((.*)\)")  # match [tags]:# (...)
-    if re.match(r"(?<!\S| )\[tags\]:# \((.*)\)\n\n", text):
+    rt = re.compile(
+        r"^(?<!\S| )\[tags\]:# \((.*)\)$", re.MULTILINE
+    )  # match [tags]:# (...)
+    if re.match(r"^(?<!\S| )\[tags\]:# \((.*)\)\n", text):
         text = re.sub(rt, f"[tags]:# ({tagstring})", text)
+        print("A")
     elif re.search(r"(?<!\S| )\[tags\]:# \((.*)\)", text):
         text = re.sub(rt, "", text)
-        text = text.lstrip()
-        text = f"[tags]:# ({tagstring})\n\n" + text
+        text = text.strip()
+        text = f"[tags]:# ({tagstring})\n" + text
+        print("B")
     else:
-        text = f"[tags]:# ({tagstring})\n\n" + text
+        text = text.strip()
+        text = f"[tags]:# ({tagstring})\n" + text
+        print("C")
     return text
 
 
@@ -110,7 +116,7 @@ def add_links_from_list(text: str, linklist: str) -> str:
         if (m := re.match(tre, strg))
     }
     appendix = "\n\n"
-    m = re.match(r"(?<!\S| )\[tags\]:# \((.*)\)", text)
+    m = re.match(r"^(?<!\S| )\[tags\]:# \((.*)\)$", text, re.MULTILINE)
     if not m:
         return text  # Cannot proceed without a tags comment
     tagstring = m.group(0)
@@ -154,10 +160,11 @@ def add_links_from_list(text: str, linklist: str) -> str:
 
 def add_links_from_index(text: str, tag_index: TagIndex) -> str:
     text = text.strip()
-    m = re.match(r"(?<!\S| )\[tags\]:# \((.*)\)", text)
+    m = re.match(r"^(?<!\S| )\[tags\]:# \((.*)\)$", text, re.MULTILINE)
     if not m:
         return text  # Cannot proceed without a tags comment
     tagstring = m.group(0)
+    print(tagstring, "add_links")
     text = re.sub(
         r"(?<!\S| )\[tags\]:# \((.*)\)", "@@-0-@@", text
     )  # replace tag comment
@@ -169,38 +176,45 @@ def add_links_from_index(text: str, tag_index: TagIndex) -> str:
         placeholder = rf"@@@{i}@@@"
         placeholders[placeholder] = f"[{tag}][{tag}]"
         text = re.sub(re.escape(placeholders[placeholder]), placeholder, text)
-        text = re.sub(rf"(?i)\[{etag}\]: .*#.*\.md\n", "", text)
+        text = re.sub(rf"^\[{etag}\]: \S+ \(autolink\)$", "", text)
+        # "^\[.+\]: \S+ \(autolink\)$"mg
         text = re.sub(
             rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{etag}(?![a-z,][ \)][\)\n]|\.md)|(?<=\[\[){etag}(?=\]\])",
             placeholder,
             text,
         )
-        text.rstrip()
+        text = text.rstrip()
         text = re.sub(rf"(?i)\[{etag}\]\[{etag}\]", placeholder, text)
     # add references
     for placeholder in placeholders.keys():
         text = re.sub(rf"\[\[{placeholder}\]\]", placeholder, text)
         text = re.sub(placeholder, placeholders[placeholder], text)
+
     # add taglinks
-    appendix: str = "\n\n"
+    appendix: str = ""
     for tag in tags:
+        text = re.sub(
+            rf"(?i)(?<!\S| )\[\S+\]: \S+ \(autolink\)",
+            "",
+            text,
+        )
         etag = re.escape(tag)
         taglink: str = sorted(tag_index.get_defining_files(tag).values())[0]
         if re.search(rf"(?i)\[{etag}\]\[{etag}\]", text):
-            if (
-                re.search(
-                    rf"(?i)(?<!\S| )\[{etag}\]: {re.escape(taglink)}",
-                    text,
-                )
-                is None
-            ):
-                appendix += f"[{tag}]: {taglink}\n"
-    # readd comment
+            # if (
+            #     re.search(
+            #         rf"(?i)(?<!\S| )\[{etag}\]: {re.escape(taglink)} \(autolink\)",
+            #         text,
+            #     )
+            #     is None
+            # ):
+            appendix += f"[{tag}]: {taglink} (autolink)\n"
+    # re-add comment
     text = re.sub(r"@@-0-@@", tagstring, text)
-    if appendix == "\n\n":
+    if appendix == "":
         return text
     else:
-        return text + appendix
+        return text.strip() + "\n" + appendix.strip()
 
 
 def get_origin(tag: str, path: str) -> str:
@@ -225,67 +239,6 @@ def get_origin(tag: str, path: str) -> str:
                         return file_path
     else:
         raise ValueError(f"no tag: {tag} was found in {path}")
-
-
-def initialize_tagging(path: str) -> None:
-    """
-    Initializes tagging:
-    - goes through all Markdown files in the directory
-    - extracts tags from headers
-    - inserts them into [tags]:# comments
-    - then creates cross-links between all files based on tags
-    - builds and saves a tag index for faster lookups
-    """
-    drc = os.listdir(path)
-    if len(drc) == 0:
-        return
-    atags = set()
-    atag_paths: dict = {}
-    linklist = ""
-    tag_index = TagIndex(path)
-    for name in drc:
-        file_path = os.path.join(path, name)
-        if (
-            os.path.isfile(file_path)
-            and os.path.splitext(file_path)[1].lower() == ".md"
-            and not file_path.endswith("linklist.md")
-        ):
-            with open(file_path, encoding="utf-8") as f:
-                text = f.read()
-            tags = get_tags_from_headers(text)
-            tags.update(get_tags_from_comment(text))
-            tags.update(get_tags_from_wikilinks(text))
-            text = add_tags(tags, text)
-            tag_paths = get_tag_headers(tags, text, os.path.relpath(file_path, path))
-            atags.update(tags)
-            atag_paths |= tag_paths
-            with open(file_path, mode="w", encoding="utf-8") as f:
-                f.write(text)
-    linklist = add_tags(atags, linklist)
-    linklist = add_taglinks_to_linklist(atag_paths, linklist)
-    # Populate tag index with definitions
-    for tag, path_info in atag_paths.items():
-        # The file_path for definition is just the file, not with #header
-        tag_index.add_definition(tag, path_info.split("#")[0], path_info)
-    for name in drc:
-        file_path = os.path.join(path, name)
-        if (
-            os.path.isfile(file_path)
-            and os.path.splitext(file_path)[1].lower() == ".md"
-            and not file_path.endswith("linklist.md")
-        ):
-            with open(file_path, "r", encoding="utf-8") as f:
-                text = f.read()
-            out = add_links_from_list(text, linklist)
-            tag_index.update_file_references(
-                os.path.relpath(file_path, path), tag_index.get_all_tags(), out
-            )
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(out)
-    tag_index.save()
-    with open(os.path.join(path, "linklist.md"), "w", encoding="utf-8") as fl:
-        fl.write(linklist)
-    tag_index.save()
 
 
 def add_taglinks_to_linklist(tags_with_paths: dict[str, str], text: str) -> str:
@@ -330,7 +283,7 @@ def _remove_tag_references_from_file(tag: str, file_path: str) -> None:
 
         if modified_content != content:
             f.seek(0)
-            f.write(modified_content.rstrip() + "\n")
+            f.write(modified_content.rstrip())
             f.truncate()
 
 
@@ -430,6 +383,67 @@ def _cleanup_dead_tag_in_project(
             and not other_file_path.endswith("linklist.md")
         ):
             _remove_tag_references_from_file(tag, other_file_path)
+
+
+def initialize_tagging(path: str) -> None:
+    """
+    Initializes tagging:
+    - goes through all Markdown files in the directory
+    - extracts tags from headers
+    - inserts them into [tags]:# comments
+    - then creates cross-links between all files based on tags
+    - builds and saves a tag index for faster lookups
+    """
+    drc = os.listdir(path)
+    if len(drc) == 0:
+        return
+    atags = set()
+    atag_paths: dict = {}
+    linklist = ""
+    tag_index = TagIndex(path)
+    for name in drc:
+        file_path = os.path.join(path, name)
+        if (
+            os.path.isfile(file_path)
+            and os.path.splitext(file_path)[1].lower() == ".md"
+            and not file_path.endswith("linklist.md")
+        ):
+            with open(file_path, encoding="utf-8") as f:
+                text = f.read()
+            tags = get_tags_from_headers(text)
+            tags.update(get_tags_from_comment(text))
+            tags.update(get_tags_from_wikilinks(text))
+            text = add_tags(tags, text)
+            tag_paths = get_tag_headers(tags, text, os.path.relpath(file_path, path))
+            atags.update(tags)
+            atag_paths |= tag_paths
+            with open(file_path, mode="w", encoding="utf-8") as f:
+                f.write(text)
+    linklist = add_tags(atags, linklist)
+    linklist = add_taglinks_to_linklist(atag_paths, linklist)
+    # Populate tag index with definitions
+    for tag, path_info in atag_paths.items():
+        # The file_path for definition is just the file, not with #header
+        tag_index.add_definition(tag, path_info.split("#")[0], path_info)
+    for name in drc:
+        file_path = os.path.join(path, name)
+        if (
+            os.path.isfile(file_path)
+            and os.path.splitext(file_path)[1].lower() == ".md"
+            and not file_path.endswith("linklist.md")
+        ):
+            with open(file_path, "r", encoding="utf-8") as f:
+                text = f.read()
+            out = add_links_from_index(text, tag_index)
+            tag_index.update_file_references(
+                os.path.relpath(file_path, path), tag_index.get_all_tags(), out
+            )
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(out)
+    tag_index.save()
+    with open(os.path.join(path, "linklist.md"), "w", encoding="utf-8") as fl:
+        fl.write(linklist)
+    tag_index.save()
 
 
 def update_tags_on_file(file_path: str) -> None:
@@ -561,7 +575,7 @@ def rename_tag(directory_path: str, old_tag: str, new_tag: str) -> None:
     defining_files = tag_index.get_defining_files(old_tag).keys()
     referenced_files = tag_index.get_referenced_files(old_tag)
 
-    files_to_update = list(set(defining_files) | referenced_files)
+    files_to_update = sorted(defining_files | referenced_files)
 
     if not files_to_update:
         print(f"No files found containing or referencing tag '{old_tag}'.")
@@ -600,7 +614,7 @@ def rename_tag(directory_path: str, old_tag: str, new_tag: str) -> None:
             flags=re.IGNORECASE,
         )
         modified_content = re.sub(
-            rf"^\s*\[{eo_tag}\]: .*\n?",  # Match [old_tag]: ...\n
+            rf"^\s*\[{eo_tag}\]: .*$",  # Match [old_tag]: ...\n
             "",
             modified_content,
             flags=re.MULTILINE | re.IGNORECASE,
@@ -622,28 +636,29 @@ def rename_tag(directory_path: str, old_tag: str, new_tag: str) -> None:
 
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(modified_content)
-
-    # 5. Update the linklist
+    # Update the linklist
     linklist_path = os.path.join(directory_path, "linklist.md")
     if os.path.exists(linklist_path):
         with open(linklist_path, "r", encoding="utf-8") as f:
             linklist_content = f.read()
-
         linklist_content = re.sub(
             rf"\[{re.escape(old_tag)}\]\(.*?\); \n\n",
             f"[{new_tag}]({sorted(tag_index.get_defining_files(new_tag).values())[0]}); \n\n",
             linklist_content,
             flags=re.IGNORECASE,
         )
+        linklist_content = re.sub(
+            r"^(?<!\S| )\[tags\]:# \((.*)\)\n", "", linklist_content
+        )
+        print(linklist_content)
+        linklist_content = add_tags(tag_index.get_all_tags(), linklist_content)
         with open(linklist_path, "w", encoding="utf-8") as f:
             f.write(linklist_content)
 
     # Re-run a full update for consistency
-    for file in files_to_update:
-        update_tags_on_file(os.path.join(directory_path, file))
-    # initialize_tagging(directory_path)
-
-    print(f"Successfully renamed tag '{old_tag}' to '{new_tag}'.")
+    # for file in files_to_update:
+    #     update_tags_on_file(os.path.join(directory_path, file))
+    tag_index.save()
 
 
 def terminal_operation(argv=None) -> None:
@@ -681,6 +696,30 @@ def terminal_operation(argv=None) -> None:
         help="File or directory path to update.",
     )
 
+    rename_parser = subparsers.add_parser(
+        "rename", help="rename tags and links for a directory."
+    )
+    rename_parser.add_argument(
+        "-o",
+        "--old",
+        type=str,
+        help="old tag",
+    )
+    rename_parser.add_argument(
+        "-n",
+        "--new",
+        type=str,
+        help="new tag",
+    )
+
+    rename_parser.add_argument(
+        "path",
+        type=str,
+        default=".",
+        nargs="?",
+        help="directory path to rename tags in.",
+    )
+
     args = parser.parse_args(argv)
     path = os.path.realpath(args.path)
 
@@ -708,7 +747,9 @@ def terminal_operation(argv=None) -> None:
                     update_tags_on_file(file_path)
         else:
             print(f"Error: Path not found - {path}")
-    # elif arg.s.command ==
+    elif args.command == "rename":
+        rename_tag(args.path, args.old, args.new)
+        print(f"Successfully renamed tag '{args.old}' to '{args.new}'.")
 
 
 if __name__ == "__main__":

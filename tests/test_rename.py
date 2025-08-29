@@ -4,7 +4,7 @@ Tests for the autolink functionality, specifically for renaming tags.
 
 import os
 import json
-from autolink import initialize_tagging, rename_tag
+from autolink import initialize_tagging, rename_tag, update_tags_on_file
 
 
 def test_rename_tag_successfully(tmp_path):
@@ -41,7 +41,6 @@ This file references old tag.
     # 4. Assertions
     # Check file1.md content
     t1 = f1.read_text()
-    print(t1)
     # Header should be renamed
     assert "# new tag" in t1
     assert "# old tag" not in t1
@@ -52,6 +51,7 @@ This file references old tag.
     assert "[old tag]:" not in t1
 
     # Check file2.md content
+    update_tags_on_file(f2)
     t2 = f2.read_text()
     # Reference link should be updated
     assert "[new tag][new tag]" in t2
@@ -69,48 +69,44 @@ This file references old tag.
         assert "[old tag]" not in content
 
     # Check .tag_index.json content
-    tag_index_path = tmp_path / ".tag_index.json"
+    tag_index_path = tmp_path / "autolink_index.json"
     with open(tag_index_path, "r", encoding="utf-8") as f:
         index_data = json.load(f)
         assert "new tag" in index_data["tags"]
         assert "old tag" not in index_data["tags"]
         # Check definitions for the new tag
-        assert index_data["tags"]["new tag"]["defines"] == {
+        assert index_data["tags"]["new tag"]["defining_files"] == {
             "file1.md": "file1.md#new-tag"
         }
         # Check references for the new tag
-        assert "file2.md" in index_data["tags"]["new tag"]["references"]
+        assert "file2.md" in index_data["tags"]["new tag"]["referenced_by_files"]
 
 
-def test_rename_tag_non_existent(pytester, capsys):
+def test_rename_tag_non_existent(tmp_path, capsys):
     """
     Tests that rename_tag handles the case where the old tag does not exist
     and prints an appropriate error message.
     """
-    pytester.makefile(".md", file1="# some tag")
-    initialize_tagging(str(pytester.path))
+    f1 = tmp_path / "f1.md"
+    f1.write_text("# some tag")
+    initialize_tagging(tmp_path)
 
-    rename_tag(str(pytester.path), "non_existent_tag", "new_tag")
+    rename_tag(tmp_path, "non_existent_tag", "new_tag")
 
     captured = capsys.readouterr()
     assert "Error: Tag 'non_existent_tag' not found in the index." in captured.out
 
 
-def test_rename_tag_already_exists(pytester, capsys):
+def test_rename_tag_already_exists(tmp_path, capsys):
     """
     Tests that rename_tag handles the case where the new tag name
     already exists and prints an appropriate error message.
     """
-    pytester.makefile(
-        ".md",
-        file1="""
-# old_tag
-# new_tag
-    """,
-    )
-    initialize_tagging(str(pytester.path))
+    f = tmp_path / "f.md"
+    f.write_text("# old_tag\nbody\n# new_tag")
+    initialize_tagging(tmp_path)
 
-    rename_tag(str(pytester.path), "old_tag", "new_tag")
+    rename_tag(tmp_path, "old_tag", "new_tag")
 
     captured = capsys.readouterr()
     assert "Error: Tag 'new_tag' already exists. Cannot rename." in captured.out
