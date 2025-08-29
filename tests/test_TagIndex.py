@@ -2,7 +2,7 @@ import pytest
 import json
 import os
 from datetime import datetime
-from autolink.tag_index import TagIndex
+from autolink import TagIndex
 
 
 def create_dummy_index(path, data):

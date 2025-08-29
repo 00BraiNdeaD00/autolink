@@ -2,11 +2,11 @@ import os
 import sys
 import re
 import argparse
-from autolink.tag_index import TagIndex  # Import the new TagIndex class
+from .tag_index import TagIndex
 
 from datetime import datetime
 
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Optional
 
 
 #! DEPRECATED, maybe useful... for future functionality
@@ -145,6 +145,57 @@ def add_links_from_list(text: str, linklist: str) -> str:
                 is None
             ):
                 appendix += f"[{tag}]: {ld[tag]}\n"
+    text = re.sub(r"@@-0-@@", tagstring, text)
+    if appendix == "\n\n":
+        return text
+    else:
+        return text + appendix
+
+
+def add_links_from_index(text: str, tag_index: TagIndex) -> str:
+    text = text.strip()
+    m = re.match(r"(?<!\S| )\[tags\]:# \((.*)\)", text)
+    if not m:
+        return text  # Cannot proceed without a tags comment
+    tagstring = m.group(0)
+    text = re.sub(
+        r"(?<!\S| )\[tags\]:# \((.*)\)", "@@-0-@@", text
+    )  # replace tag comment
+    tags: list = sorted(tag_index.get_all_tags())
+    placeholders: dict = {}
+    # strip actual tag references
+    for i, tag in enumerate(tags):
+        etag = re.escape(tag)
+        placeholder = rf"@@@{i}@@@"
+        placeholders[placeholder] = f"[{tag}][{tag}]"
+        text = re.sub(re.escape(placeholders[placeholder]), placeholder, text)
+        text = re.sub(rf"(?i)\[{etag}\]: .*#.*\.md\n", "", text)
+        text = re.sub(
+            rf"(?i)(?<!#)(?<!# )(?<!\(|\[)\b{etag}(?![a-z,][ \)][\)\n]|\.md)|(?<=\[\[){etag}(?=\]\])",
+            placeholder,
+            text,
+        )
+        text.rstrip()
+        text = re.sub(rf"(?i)\[{etag}\]\[{etag}\]", placeholder, text)
+    # add references
+    for placeholder in placeholders.keys():
+        text = re.sub(rf"\[\[{placeholder}\]\]", placeholder, text)
+        text = re.sub(placeholder, placeholders[placeholder], text)
+    # add taglinks
+    appendix: str = "\n\n"
+    for tag in tags:
+        etag = re.escape(tag)
+        taglink: str = sorted(tag_index.get_defining_files(tag).values())[0]
+        if re.search(rf"(?i)\[{etag}\]\[{etag}\]", text):
+            if (
+                re.search(
+                    rf"(?i)(?<!\S| )\[{etag}\]: {re.escape(taglink)}",
+                    text,
+                )
+                is None
+            ):
+                appendix += f"[{tag}]: {taglink}\n"
+    # readd comment
     text = re.sub(r"@@-0-@@", tagstring, text)
     if appendix == "\n\n":
         return text
@@ -419,9 +470,10 @@ def update_tags_on_file(file_path: str) -> None:
     current_tags.update(get_tags_from_comment(original_file_content))
     file_content_with_updated_tags = add_tags(current_tags, original_file_content)
     # Add links from the master linklist to the file.
-    final_file_content = add_links_from_list(
-        file_content_with_updated_tags, linklist_content
-    )
+    # final_file_content = add_links_from_list(
+    #     file_content_with_updated_tags, linklist_content
+    # )
+    final_file_content = add_links_from_index(file_content_with_updated_tags, tag_index)
     # Save updated file
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(final_file_content)
@@ -491,6 +543,109 @@ def update_tags_on_file(file_path: str) -> None:
         f.write(linklist_content)
 
 
+def rename_tag(directory_path: str, old_tag: str, new_tag: str) -> None:
+    """
+    Renames a tag and updates all occurrences and references across the project.
+    """
+    tag_index = TagIndex(directory_path)
+
+    # Check if the old tag exists and the new one doesn't
+    if old_tag not in tag_index.get_all_tags():
+        print(f"Error: Tag '{old_tag}' not found in the index.")
+        return
+    if new_tag in tag_index.get_all_tags():
+        print(f"Error: Tag '{new_tag}' already exists. Cannot rename.")
+        return
+
+    # Identify all relevant files
+    defining_files = tag_index.get_defining_files(old_tag).keys()
+    referenced_files = tag_index.get_referenced_files(old_tag)
+
+    files_to_update = list(set(defining_files) | referenced_files)
+
+    if not files_to_update:
+        print(f"No files found containing or referencing tag '{old_tag}'.")
+        return
+
+    # Update TagIndex
+    tag_index.rename_tag_in_index(old_tag, new_tag)
+    # Update file contents
+    eo_tag = re.escape(old_tag)
+    for rel_path in files_to_update:
+        file_path = os.path.join(directory_path, rel_path)
+        if not os.path.exists(file_path):
+            continue
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Replace tag in headers, and reference links
+        modified_content = content
+        modified_content = re.sub(
+            rf"# {eo_tag}",
+            f"# {new_tag}",
+            modified_content,
+            flags=re.IGNORECASE,
+        )
+        # modified_content = re.sub(
+        #     rf"\[\[{eo_tag}\]\]",
+        #     f"[[{new_tag}]]",
+        #     modified_content,
+        #     flags=re.IGNORECASE,
+        # )
+        modified_content = re.sub(
+            rf"\[{eo_tag}\]\[{eo_tag}\]",
+            f"[{new_tag}][{new_tag}]",
+            modified_content,
+            flags=re.IGNORECASE,
+        )
+        modified_content = re.sub(
+            rf"^\s*\[{eo_tag}\]: .*\n?",  # Match [old_tag]: ...\n
+            "",
+            modified_content,
+            flags=re.MULTILINE | re.IGNORECASE,
+        )
+
+        # Update tags in the [tags]:# comment
+        tags_in_file = get_tags_from_comment(modified_content)
+        if old_tag in tags_in_file:
+            tags_in_file.remove(old_tag)
+            tags_in_file.add(new_tag)
+            tag_index.add_definition(
+                new_tag,
+                rel_path,
+                get_tag_headers(set(new_tag), modified_content, rel_path)[new_tag],
+            )
+        modified_content = re.sub(rf"\[tags\]:# \((.*)\)", "", modified_content)
+        modified_content = add_tags(tags_in_file, modified_content)
+        modified_content = add_links_from_index(modified_content, tag_index)
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(modified_content)
+
+    # 5. Update the linklist
+    linklist_path = os.path.join(directory_path, "linklist.md")
+    if os.path.exists(linklist_path):
+        with open(linklist_path, "r", encoding="utf-8") as f:
+            linklist_content = f.read()
+
+        linklist_content = re.sub(
+            rf"\[{re.escape(old_tag)}\]\(.*?\); \n\n",
+            f"[{new_tag}]({sorted(tag_index.get_defining_files(new_tag).values())[0]}); \n\n",
+            linklist_content,
+            flags=re.IGNORECASE,
+        )
+        with open(linklist_path, "w", encoding="utf-8") as f:
+            f.write(linklist_content)
+
+    # Re-run a full update for consistency
+    for file in files_to_update:
+        update_tags_on_file(os.path.join(directory_path, file))
+    # initialize_tagging(directory_path)
+
+    print(f"Successfully renamed tag '{old_tag}' to '{new_tag}'.")
+
+
 def terminal_operation(argv=None) -> None:
     """
     Parses command-line arguments and executes the corresponding autolink operation.
@@ -553,6 +708,7 @@ def terminal_operation(argv=None) -> None:
                     update_tags_on_file(file_path)
         else:
             print(f"Error: Path not found - {path}")
+    # elif arg.s.command ==
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 # Assuming autolink.py is in autolink/autolink/autolink.py
 # Adjust the import path if your project structure is different
-from autolink.autolink import (
+from autolink import (
     terminal_operation,
     initialize_tagging,
     update_tags_on_file,

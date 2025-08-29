@@ -120,3 +120,10 @@ class TagIndex:
         """Completely removes a tag from the index."""
         if tag in self._data["tags"]:
             del self._data["tags"][tag]
+
+    def rename_tag_in_index(self, old_tag: str, new_tag: str):
+        """Renames a tag in the index by transferring its data and references."""
+        if old_tag in self._data["tags"]:
+            tag_data = self._data["tags"][old_tag]
+            self._data["tags"][new_tag] = tag_data
+            del self._data["tags"][old_tag]
