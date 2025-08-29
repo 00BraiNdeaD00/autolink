@@ -17,9 +17,8 @@ This process helps you build a rich, interconnected web of knowledge without the
 You can install `Autolink` directly from the repository using pip:
 
 ```bash
-pip install Autolink
+pip install autolink-md
 ```
-<!-- ^^hoffentlich bald -->
 
 ## Usage
 
@@ -27,7 +26,19 @@ Provide a simple example of how to use your library.
 
 ```python
 # Example Usage of Autolink
-import Autolink
+import os
+import autolink
 
-# ... your example code here ...
+path = os.path.realpath("my_folder")
+initialize_tagging(path)
 ```
+there are 3 commands:
+1. ```console
+    $autolink init path ./path/to/folder
+    ```
+1. ```console
+    $autolink update path ./path/to/folder
+    ```
+3. ```console
+    $autolink rename --old old_tag --new new_tag path ./path/to/folder
+    ```

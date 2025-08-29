@@ -1,7 +1,7 @@
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "autolink"
+name = "autolink_md"
 version = "0.1.0"
 authors = [
   { name="Horst Grewe", email="kooperto.raihead@gmail.com" },
@@ -16,7 +16,12 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.scripts]
+autolink = "autolink:autolink.terminal_operation"
+
+
 [project.urls]
 "Homepage" = "https://github.com/00BraiNdeaD00/autolink"
+"Changelog" = "https://github.com/00BraiNdeaD00/autolink/releases"
 "Bug Tracker" = "https://github.com/00BraiNdeaD00/autolink/issues"
 
